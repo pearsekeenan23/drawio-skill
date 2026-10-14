@@ -39,14 +39,13 @@ COMPETITOR, i.e. one COUNTRY relates to N competitors. "participation" says
 whether EVERY occurrence of that end's entity must take part (full) or not
 (partial).
 
-Layout uses Graphviz (neato) when available; otherwise a simple grid. Every
+Layout: entities on a grid (related ones side by side), diamonds between them,
+attributes fanned out away from the lines. Pin an entity with "at": [col, row]. Every
 check finding has a stable code (E-..., W-...) and a fix hint, like validate.py.
 """
 import argparse
 import json
 import os
-import shutil
-import subprocess
 import sys
 from xml.sax.saxutils import escape
 
@@ -158,39 +157,158 @@ def check(model):
     return out
 
 # ----------------------------------------------------------------- layout ----
+# Lecture-style layout, no external tools needed:
+#   1. entities go on a grid; a small search picks the cells so related
+#      entities are neighbours (short, straight lines, no crossings);
+#   2. each relationship diamond sits halfway between its entities;
+#   3. attributes fan out around their entity, in the gaps AWAY from its
+#      relationship lines, and are nudged outwards if they would overlap.
+# Pin an entity yourself with "at": [column, row] (0-based).
 
 
-def _neato(nodes, edges, sep=18):
-    """nodes: {id: (w, h)} in px; edges: [(a, b, length_in_inches)].
-    Returns {id: (cx, cy)} in px, y downwards, or None without Graphviz."""
-    exe = shutil.which("neato")
-    if not exe:
-        return None
-    lines = ["graph G {", f'graph [overlap=false, splines=false, sep="+{sep}", esep="+10", start=7];',
-             "node [fixedsize=true, label=\"\"];"]
-    for nid, (w, h) in nodes.items():
-        lines.append(f'"{nid}" [width={w / 72:.3f}, height={h / 72:.3f}];')
-    for a, b, ln in edges:
-        lines.append(f'"{a}" -- "{b}" [len={ln}];')
-    lines.append("}")
-    res = subprocess.run([exe, "-Tplain"], input="\n".join(lines), capture_output=True, text=True)
-    if res.returncode:
-        return None
-    pos, height = {}, 0
-    for line in res.stdout.splitlines():
-        p = line.split()
-        if p and p[0] == "graph":
-            height = float(p[3]) * 72
-        elif p and p[0] == "node":
-            pos[p[1].strip('"')] = (float(p[2]) * 72, height - float(p[3]) * 72)
-    return pos
+def _segments_cross(p1, p2, p3, p4):
+    def orient(a, b, c):
+        v = (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
+        return (v > 0) - (v < 0)
+    if len({p1, p2, p3, p4}) < 4:      # sharing an entity is not a crossing
+        return False
+    return orient(p1, p2, p3) != orient(p1, p2, p4) and orient(p3, p4, p1) != orient(p3, p4, p2)
 
 
-def _grid(nodes):
-    pos, cols = {}, 4
-    for i, nid in enumerate(nodes):
-        pos[nid] = (120 + (i % cols) * 220, 120 + (i // cols) * 180)
-    return pos
+def _layout_cost(cells, pairs):
+    occupied = set(cells.values())
+    cost = 0.0
+    segs = []
+    for a, b in pairs:
+        (c1, r1), (c2, r2) = cells[a], cells[b]
+        dx, dy = abs(c1 - c2), abs(r1 - r2)
+        if dx + dy == 1:
+            cost += 1
+        elif dx == 0 or dy == 0:   # straight but long: does it pass through an entity?
+            cost += 3 * (dx + dy)
+            steps = dx + dy
+            for s in range(1, steps):
+                cell = (c1 + (c2 - c1) * s // steps, r1 + (r2 - r1) * s // steps)
+                if cell in occupied:
+                    cost += 25
+        else:                      # diagonal
+            cost += 4 * max(dx, dy) + 2 * min(dx, dy)
+        segs.append((cells[a], cells[b]))
+    for i in range(len(segs)):
+        for j in range(i + 1, len(segs)):
+            if _segments_cross(*segs[i], *segs[j]):
+                cost += 30
+    # keep it compact and stable: prefer cells near the top-left
+    cost += 0.01 * sum(c + r for c, r in cells.values())
+    return cost
+
+
+def grid_layout(entities, relationships, seed=7):
+    """Return {entity_name: (col, row)}."""
+    import math
+    import random
+    names = [e["name"] for e in entities]
+    pinned = {e["name"]: tuple(e["at"]) for e in entities if e.get("at")}
+    pairs = []
+    for r in relationships:
+        ends = [x["entity"] for x in r.get("ends", []) if x.get("entity") in names]
+        for i in range(len(ends) - 1):
+            if ends[i] != ends[i + 1]:
+                pairs.append((ends[i], ends[i + 1]))
+    n = len(names)
+    best, best_cost = None, float("inf")
+    base = max(1, math.ceil(math.sqrt(n)))
+    shapes = {(base, math.ceil(n / base)), (base + 1, math.ceil(n / (base + 1))), (base, math.ceil(n / base) + 1)}
+    for pc, pr in pinned.values():
+        shapes = {(max(c, pc + 1), max(r, pr + 1)) for c, r in shapes}
+    rng = random.Random(seed)
+    for cols, rows in sorted(shapes):
+        all_cells = [(c, r) for r in range(rows) for c in range(cols)]
+        free = [c for c in all_cells if c not in pinned.values()]
+        movable = [x for x in names if x not in pinned]
+        if len(free) < len(movable):
+            continue
+        for _ in range(60):                       # random restarts
+            rng.shuffle(free)
+            cells = dict(pinned)
+            cells.update(zip(movable, free))
+            spare = free[len(movable):]
+            cost = _layout_cost(cells, pairs)
+            improved = True
+            while improved:                       # hill-climb: swap / move
+                improved = False
+                for a in movable:
+                    for b in [x for x in movable if x != a] + list(spare):
+                        old_cells, old_spare = dict(cells), list(spare)
+                        if isinstance(b, tuple):          # move a into an empty cell
+                            spare[spare.index(b)] = cells[a]
+                            cells[a] = b
+                        else:                             # swap two entities
+                            cells[a], cells[b] = cells[b], cells[a]
+                        c2 = _layout_cost(cells, pairs)
+                        if c2 + 1e-9 < cost:
+                            cost, improved = c2, True
+                        else:
+                            cells, spare = old_cells, old_spare
+            if cost < best_cost:
+                best, best_cost = dict(cells), cost
+    # drop empty rows/columns so the grid is tight
+    used_c = sorted({c for c, r in best.values()})
+    used_r = sorted({r for c, r in best.values()})
+    return {k: (used_c.index(c), used_r.index(r)) for k, (c, r) in best.items()}
+
+
+def _spread_angles(blocked, k, clearance=38.0):
+    """k angles (degrees, screen coords: 0 = right, 90 = down) spread over the
+    free gaps between the blocked directions."""
+    if k == 0:
+        return []
+    if not blocked:
+        return [(-90 + i * 360.0 / k) % 360 for i in range(k)]
+    bl = sorted(b % 360 for b in blocked)
+    gaps = []
+    for i, b in enumerate(bl):
+        nxt = bl[(i + 1) % len(bl)] + (360 if i + 1 == len(bl) else 0)
+        start, end = b + clearance, nxt - clearance
+        if end - start > 1:
+            gaps.append((start, end))
+    if not gaps:  # crowded: just avoid the exact directions
+        gaps = [(b + 10, bl[(i + 1) % len(bl)] + (360 if i + 1 == len(bl) else 0) - 10) for i, b in enumerate(bl)]
+    total = sum(e - s for s, e in gaps)
+    counts = [int(k * (e - s) / total) for s, e in gaps]
+    rema = sorted(range(len(gaps)), key=lambda i: -(k * (gaps[i][1] - gaps[i][0]) / total - counts[i]))
+    for i in rema[: k - sum(counts)]:
+        counts[i] += 1
+    out = []
+    for (s, e), c in zip(gaps, counts):
+        out += [(s + (e - s) * (j + 0.5) / c) % 360 for j in range(c)]
+    return out
+
+
+class Placer:
+    """Keeps every placed box; nudges new attribute ellipses outwards until
+    they no longer overlap anything already placed."""
+
+    def __init__(self):
+        self.boxes = []   # (cx, cy, w, h)
+
+    def add(self, cx, cy, w, h):
+        self.boxes.append((cx, cy, w, h))
+
+    def hits(self, cx, cy, w, h, pad=8):
+        return any(abs(cx - x) < (w + bw) / 2 + pad and abs(cy - y) < (h + bh) / 2 + pad
+                   for x, y, bw, bh in self.boxes)
+
+    def place_around(self, ox, oy, angle, rx, ry, w, h):
+        import math
+        a = math.radians(angle)
+        for step in range(40):
+            grow = 1 + step * 0.08
+            cx, cy = ox + math.cos(a) * rx * grow, oy + math.sin(a) * ry * grow
+            if not self.hits(cx, cy, w, h):
+                break
+        self.add(cx, cy, w, h)
+        return cx, cy
 
 # ----------------------------------------------------------------- render ----
 
@@ -247,66 +365,109 @@ def _ew(text, minimum, per_char=7.2, pad=26):
     return max(minimum, len(text) * per_char + pad)
 
 
+def _angle(x1, y1, x2, y2):
+    import math
+    return math.degrees(math.atan2(y2 - y1, x2 - x1)) % 360
+
+
+def _rel_centres(rels, centre):
+    """Diamond centre for each relationship: midpoint of its entities, spread
+    apart when two relationships join the same pair."""
+    import math
+    out, seen = {}, {}
+    for ri, r in enumerate(rels):
+        pts = [centre[x["entity"]] for x in r["ends"]]
+        cx = sum(p[0] for p in pts) / len(pts)
+        cy = sum(p[1] for p in pts) / len(pts)
+        key = tuple(sorted(x["entity"] for x in r["ends"]))
+        k = seen.get(key, 0)
+        seen[key] = k + 1
+        if k and len(pts) >= 2:
+            (x1, y1), (x2, y2) = pts[0], pts[1]
+            d = math.hypot(x2 - x1, y2 - y1) or 1
+            off = 80 * ((k + 1) // 2) * (1 if k % 2 else -1)
+            cx += -(y2 - y1) / d * off
+            cy += (x2 - x1) / d * off
+        out[ri] = (cx, cy)
+    return out
+
+
 def render_chen(model):
     d = Doc()
     ents = model["entities"]
     rels = model.get("relationships", [])
-    nodes, links, ids = {}, [], {}
+    cells = grid_layout(ents, rels)
+    CW, CH = 470, 380
+    centre = {n: (c * CW, r * CH) for n, (c, r) in cells.items()}
+    rcent = _rel_centres(rels, centre)
+    pl = Placer()
+    shapes = []   # (key, value, style, cx, cy, w, h)
+    ids = {}
+
+    esize = {e["name"]: (_ew(e["name"], 120, 8.5), 50) for e in ents}
     for e in ents:
-        k = "E:" + e["name"]
-        nodes[k] = (_ew(e["name"], 120, 8.5), 50)
-        for i, a in enumerate(e.get("attributes", [])):
-            ak = f"A:{e['name']}:{i}"
-            nodes[ak] = (_ew(a["name"], 90), 36)
-            links.append((k, ak, 1.0))
-            for j, p in enumerate(a.get("parts", [])):
-                pk = f"{ak}:{j}"
-                nodes[pk] = (_ew(p, 80), 32)
-                links.append((ak, pk, 0.9))
+        cx, cy = centre[e["name"]]
+        w, h = esize[e["name"]]
+        pl.add(cx, cy, w, h)
+        shapes.append(("E:" + e["name"], e["name"], S_WEAK if e.get("weak") else S_ENTITY, cx, cy, w, h))
     for ri, r in enumerate(rels):
-        rk = f"R:{ri}"
-        nodes[rk] = (max(110, len(r["name"]) * 8 + 50), 64)
-        for end in r["ends"]:
-            links.append(("E:" + end["entity"], rk, 1.6))
-        for i, a in enumerate(r.get("attributes", [])):
+        cx, cy = rcent[ri]
+        w, h = max(110, len(r["name"]) * 8 + 50), 64
+        pl.add(cx, cy, w, h)
+        shapes.append((f"R:{ri}", r["name"], S_IDREL if r.get("identifying") else S_REL, cx, cy, w, h))
+    # directions each entity's relationship lines leave in
+    lines_from = {e["name"]: [] for e in ents}
+    for ri, r in enumerate(rels):
+        for x in r["ends"]:
+            ex, ey = centre[x["entity"]]
+            lines_from[x["entity"]].append(_angle(ex, ey, *rcent[ri]))
+    attr_links = []
+    for e in ents:
+        ex, ey = centre[e["name"]]
+        attrs = e.get("attributes", [])
+        k = len(attrs)
+        rx, ry = max(150, 22 * k), max(92, 15 * k)
+        for i, (a, ang) in enumerate(zip(attrs, _spread_angles(lines_from[e["name"]], k))):
+            w, h = _ew(a["name"], 90), 36
+            ax, ay = pl.place_around(ex, ey, ang, rx, ry, w, h)
+            ak = f"A:{e['name']}:{i}"
+            shapes.append((ak, _attr_label(a), _attr_style(a), ax, ay, w, h))
+            attr_links.append(("E:" + e["name"], ak))
+            parts = a.get("parts", [])
+            for j, p in enumerate(parts):
+                pang = ang + (j - (len(parts) - 1) / 2) * 32
+                pw = _ew(p, 80)
+                px, py = pl.place_around(ax, ay, pang, 120, 70, pw, 32)
+                pk = f"{ak}:{j}"
+                shapes.append((pk, p, S_ATTR, px, py, pw, 32))
+                attr_links.append((ak, pk))
+    for ri, r in enumerate(rels):
+        rx0, ry0 = rcent[ri]
+        blocked = [_angle(rx0, ry0, *centre[x["entity"]]) for x in r["ends"]]
+        attrs = r.get("attributes", [])
+        for i, (a, ang) in enumerate(zip(attrs, _spread_angles(blocked, len(attrs), 45))):
+            w, h = _ew(a["name"], 90), 36
+            ax, ay = pl.place_around(rx0, ry0, ang, 125, 80, w, h)
             ak = f"RA:{ri}:{i}"
-            nodes[ak] = (_ew(a["name"], 90), 36)
-            links.append((rk, ak, 1.1))
-    pos = _neato(nodes, links) or _grid(nodes)
-    minx = min(x - nodes[k][0] / 2 for k, (x, y) in pos.items())
-    miny = min(y - nodes[k][1] / 2 for k, (x, y) in pos.items())
+            shapes.append((ak, _attr_label(a), _attr_style(a), ax, ay, w, h))
+            attr_links.append((f"R:{ri}", ak))
+
+    minx = min(cx - w / 2 for _, _, _, cx, cy, w, h in shapes)
+    miny = min(cy - h / 2 for _, _, _, cx, cy, w, h in shapes)
     ox, oy = 40 - minx, 80 - miny
-
-    def place(key, cid, value, style):
-        w, h = nodes[key]
-        cx, cy = pos[key]
-        d.vertex(cid, value, style, cx - w / 2 + ox, cy - h / 2 + oy, w, h)
-        ids[key] = cid
-
-    d.vertex("title", model.get("title", "ER diagram") + " — Chen notation", S_TITLE, 40, 20, 600, 30)
-    for e in ents:
-        k = "E:" + e["name"]
-        place(k, d.nid("ent"), e["name"], S_WEAK if e.get("weak") else S_ENTITY)
-        for i, a in enumerate(e.get("attributes", [])):
-            ak = f"A:{e['name']}:{i}"
-            place(ak, d.nid("att"), _attr_label(a), _attr_style(a))
-            d.edge(d.nid("ln"), ids[k], ids[ak], S_LINE)
-            for j, p in enumerate(a.get("parts", [])):
-                pk = f"{ak}:{j}"
-                place(pk, d.nid("att"), p, S_ATTR)
-                d.edge(d.nid("ln"), ids[ak], ids[pk], S_LINE)
+    d.vertex("title", model.get("title", "ER diagram") + " — Chen notation", S_TITLE, 40, 20, 700, 30)
+    for key, value, style, cx, cy, w, h in shapes:
+        prefix = {"E": "ent", "R": "rel"}.get(key.split(":")[0], "att")
+        ids[key] = d.nid(prefix)
+        d.vertex(ids[key], value, style, cx - w / 2 + ox, cy - h / 2 + oy, w, h)
+    for a, b in attr_links:
+        d.edge(d.nid("ln"), ids[a], ids[b], S_LINE)
     for ri, r in enumerate(rels):
-        rk = f"R:{ri}"
-        place(rk, d.nid("rel"), r["name"], S_IDREL if r.get("identifying") else S_REL)
         for end in r["ends"]:
             eid = d.nid("end")
-            d.edge(eid, ids["E:" + end["entity"]], ids[rk], S_FULL if end["participation"] == "full" else S_LINE)
-            d.edge_label(eid, str(end["card"]).upper(), "-0.55")   # near the entity
-        for i, a in enumerate(r.get("attributes", [])):
-            ak = f"RA:{ri}:{i}"
-            place(ak, d.nid("att"), _attr_label(a), _attr_style(a))
-            d.edge(d.nid("ln"), ids[rk], ids[ak], S_LINE)
-    ymax = max(cy + nodes[k][1] / 2 for k, (cx, cy) in pos.items()) + oy
+            d.edge(eid, ids["E:" + end["entity"]], ids[f"R:{ri}"], S_FULL if end["participation"] == "full" else S_LINE)
+            d.edge_label(eid, str(end["card"]).upper(), "-0.5")   # near the entity
+    ymax = max(cy + h / 2 for _, _, _, cx, cy, w, h in shapes) + oy
     d.vertex("legend", "Chen notation · rectangle = entity · double rectangle = weak entity · diamond = relationship · "
              "double diamond = identifying relationship · underlined = key · dashed underline = partial key · "
              "double ellipse = multi-valued · dashed ellipse = derived · double line = full participation · "
@@ -323,24 +484,27 @@ def render_crowsfoot(model):
     for e in ents:
         rows = e.get("attributes", [])
         width = max([_ew(e["name"], 150, 8.5)] + [_ew(_cf_row(a), 150, 6.6) for a in rows])
-        sizes["E:" + e["name"]] = (width, 28 + 22 * max(1, len(rows)))
-    links = []
+        sizes[e["name"]] = (width, 28 + 22 * max(1, len(rows)))
     binary = [r for r in rels if len(r.get("ends", [])) == 2]
-    for r in binary:
-        links.append(("E:" + r["ends"][0]["entity"], "E:" + r["ends"][1]["entity"], 4.0))
-    pos = _neato(sizes, links, sep=70) or _grid(sizes)
-    minx = min(x - sizes[k][0] / 2 for k, (x, y) in pos.items())
-    miny = min(y - sizes[k][1] / 2 for k, (x, y) in pos.items())
-    ox, oy = 40 - minx, 80 - miny
-    d.vertex("title", model.get("title", "ER diagram") + " — crow's foot notation", S_TITLE, 40, 20, 600, 30)
+    cells = grid_layout(ents, binary)
+    ncol = max(c for c, r in cells.values()) + 1
+    nrow = max(r for c, r in cells.values()) + 1
+    colw = [max([sizes[n][0] for n, (c, r) in cells.items() if c == ci] or [150]) for ci in range(ncol)]
+    rowh = [max([sizes[n][1] for n, (c, r) in cells.items() if r == ri] or [60]) for ri in range(nrow)]
+    GAPX, GAPY = 190, 110
+    xs = [40 + sum(colw[:i]) + GAPX * i for i in range(ncol)]
+    ys = [80 + sum(rowh[:i]) + GAPY * i for i in range(nrow)]
+    d.vertex("title", model.get("title", "ER diagram") + " — crow's foot notation", S_TITLE, 40, 20, 700, 30)
     for e in ents:
-        k = "E:" + e["name"]
-        w, h = sizes[k]
-        cx, cy = pos[k]
+        n = e["name"]
+        c, r = cells[n]
+        w, h = sizes[n]
+        x = xs[c] + (colw[c] - w) / 2          # centred in its column
+        y = ys[r] + (rowh[r] - h) / 2          # centred in its row, so lines run straight
         tid = d.nid("tbl")
-        ids[k] = tid
-        style = S_CF_TABLE + ("dashed=0;strokeWidth=2;" if e.get("weak") else "")
-        d.vertex(tid, e["name"], style, cx - w / 2 + ox, cy - h / 2 + oy, w, h)
+        ids[n] = tid
+        style = S_CF_TABLE + ("strokeWidth=2;" if e.get("weak") else "")
+        d.vertex(tid, n, style, x, y, w, h)
         for i, a in enumerate(e.get("attributes", []) or [{"name": ""}]):
             rs = S_CF_ROW + ("fontStyle=4;" if a.get("key") or a.get("partial_key") else "")
             d.vertex(d.nid("row"), _cf_row(a), rs, 0, 28 + 22 * i, w, 22, parent=tid)
@@ -352,15 +516,15 @@ def render_crowsfoot(model):
             mx = "one" if str(this["card"]) == "1" else "many"
             mn = 1 if other["participation"] == "full" else 0
             return CF_END[(mn, mx)]
-        style = (f"edgeStyle=entityRelationEdgeStyle;html=1;rounded=0;fontSize=11;labelBackgroundColor=#ffffff;"
+        style = (f"html=1;rounded=0;fontSize=11;labelBackgroundColor=#ffffff;endSize=12;startSize=12;"
                  f"strokeColor=#000000;startArrow={sym(a, b)};startFill=0;endArrow={sym(b, a)};endFill=0;")
-        label = r["name"] + ("  [" + ", ".join(x["name"] for x in r.get("attributes", [])) + "]" if r.get("attributes") else "")
-        d.edge(d.nid("rel"), ids["E:" + a["entity"]], ids["E:" + b["entity"]], style, label)
-    ymax = max(cy + sizes[k][1] / 2 for k, (cx, cy) in pos.items()) + oy
+        label = r["name"] + ("<br>[" + ", ".join(x["name"] for x in r.get("attributes", [])) + "]" if r.get("attributes") else "")
+        d.edge(d.nid("rel"), ids[a["entity"]], ids[b["entity"]], style, label)
+    ymax = ys[-1] + rowh[-1]
     d.vertex("legend", "Crow's foot notation · bar = one · crow's foot = many · circle = zero (optional) · "
              "the symbol beside an entity says how many of THAT entity relate to one of the other · "
              "underlined = key · relationship attributes shown in [brackets] on the line",
-             S_LEGEND, 40, ymax + 30, 760, 40)
+             S_LEGEND, 40, ymax + 40, 760, 40)
     return d.xml(model.get("title", "ERD") + " (crow's foot)")
 
 

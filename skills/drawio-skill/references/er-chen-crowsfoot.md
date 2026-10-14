@@ -50,6 +50,7 @@ Worked examples are in `examples/erd-chen/`: `olympics.json` (lecture example: 1
 | `"multivalued": true` | several values per occurrence | double ellipse | row tagged `multi-valued` |
 | `"derived": true` | can be calculated from other data | dashed ellipse | row tagged `derived` |
 | `"parts": [...]` | composite attribute | ellipse with child ellipses | `name (part, part)` |
+| entity `"at": [col, row]` | optional: pin the entity to a grid cell | position | position |
 | relationship | association between entities | diamond | line, name as label |
 | `"identifying": true` | relationship that identifies a weak entity | double diamond | (line to the thick box) |
 | end `"card"` | `1`, `N` or `M`, written **beside that end's entity** | label on the line | max symbol beside the entity |
@@ -89,4 +90,14 @@ It looks for missing or inconsistent structure. It never judges whether a design
 | `W-NO-ATTRS` / `W-ONE-ATTR` | entity with 0 or 1 attributes: is it really an entity? |
 
 ## Layout
-Graphviz `neato` places entities, diamonds and attribute ellipses (force-directed, no overlaps); without Graphviz the script falls back to a grid. The result is a normal `.drawio` file, so drag shapes in draw.io to tidy it: edges stay attached. Higher-arity relationships (3+ ends) are drawn in Chen; crow's foot only draws binary relationships, as the notation requires.
+No external tools needed. The script lays the diagram out the way lecture diagrams are drawn:
+
+1. **Entities on a grid.** A small search tries arrangements and keeps the one where related entities are next to each other (straight lines, no crossings, no line running through another entity).
+2. **Diamonds in between.** Each relationship diamond sits halfway between its entities. Two relationships between the same pair are spread apart.
+3. **Attributes fan out away from the lines.** Each entity's attributes go in the gaps between its relationship lines and are pushed outwards if they would overlap anything.
+
+Crow's foot uses the same grid, with rows and columns aligned so the lines run straight.
+
+**Pin an entity** to a grid cell with `"at": [column, row]` (0-based, top-left is `[0, 0]`), e.g. `{"name": "CUSTOMER", "at": [0, 0], ...}`. The others are arranged around it. The output is a normal `.drawio` file, so you can still drag shapes in draw.io and the lines stay attached.
+
+Crow's foot draws only binary relationships, as the notation requires. Chen also draws 3+ way relationships (diamond at the centre of its entities).

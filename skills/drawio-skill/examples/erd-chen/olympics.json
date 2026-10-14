@@ -1,0 +1,35 @@
+{
+  "title": "Olympic Games (COM106 L03 example)",
+  "entities": [
+    {"name": "COUNTRY", "attributes": [
+      {"name": "country_code", "key": true},
+      {"name": "country_name"},
+      {"name": "continent"},
+      {"name": "number_of_competitors", "derived": true},
+      {"name": "team_manager"}]},
+    {"name": "COMPETITOR", "attributes": [
+      {"name": "competitor_id", "key": true},
+      {"name": "competitor_name"},
+      {"name": "date_of_birth"}]},
+    {"name": "EVENT", "attributes": [
+      {"name": "event_id", "key": true},
+      {"name": "event_name"},
+      {"name": "event_date"}]},
+    {"name": "VENUE", "attributes": [
+      {"name": "venue_id", "key": true},
+      {"name": "venue_name"},
+      {"name": "capacity"}]}
+  ],
+  "relationships": [
+    {"name": "Sends", "ends": [
+      {"entity": "COUNTRY", "card": "1", "participation": "full"},
+      {"entity": "COMPETITOR", "card": "N", "participation": "full"}]},
+    {"name": "Competes_in", "ends": [
+      {"entity": "COMPETITOR", "card": "M", "participation": "full"},
+      {"entity": "EVENT", "card": "N", "participation": "full"}],
+     "attributes": [{"name": "result"}, {"name": "time"}, {"name": "medal_won"}]},
+    {"name": "Holds", "ends": [
+      {"entity": "VENUE", "card": "1", "participation": "full"},
+      {"entity": "EVENT", "card": "N", "participation": "full"}]}
+  ]
+}

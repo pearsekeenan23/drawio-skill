@@ -24,6 +24,7 @@ and accessible publishing over a shared Diagram IR.
 | Code, Terraform, K8s, compose, SQL, OpenAPI, AsyncAPI, or CI source | Use `diagramctl.py build`; read `references/diagram-ir.md` |
 | Protocol Buffers schema (.proto) | Use `protoimports.py` or `diagramctl.py build`; read `references/toolbox.md` |
 | GraphQL SDL schema (.graphql/.gql) or introspection JSON | Use `graphqlerd.py` or `diagramctl.py build`; read `references/toolbox.md` |
+| Conceptual ER diagram in **Chen** or **crow's foot** notation (entities, attributes, relationships, cardinality, participation, weak entities) | Write the model JSON, run `erdgen.py model.json --check`, then `erdgen.py model.json -o out.drawio [--notation crowsfoot]`; read `references/er-chen-crowsfoot.md` |
 | Running cluster/stack/cloud (actual state, not declared config) | Read `references/live-infra.md`, then use `tfstate.py`, `dockerimports.py`, or `k8simports.py -` |
 | Update a generated diagram without losing manual layout | Use `diagramctl.py sync`; read `references/diagram-ir.md` |
 | Executive/system/deployment/data-flow/security views | Use `diagramctl.py views`; read `references/diagram-ir.md` |

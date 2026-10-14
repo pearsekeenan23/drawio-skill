@@ -1,0 +1,23 @@
+{
+  "title": "Feature test: every Chen symbol",
+  "entities": [
+    {"name": "EMPLOYEE", "attributes": [
+      {"name": "emp_no", "key": true},
+      {"name": "name", "parts": ["first_name", "surname"]},
+      {"name": "phone_numbers", "multivalued": true},
+      {"name": "age", "derived": true}]},
+    {"name": "DEPENDANT", "weak": true, "attributes": [
+      {"name": "dependant_name", "partial_key": true},
+      {"name": "relationship"}]},
+    {"name": "DEPARTMENT", "attributes": [
+      {"name": "dept_no", "key": true}, {"name": "dept_name"}]}
+  ],
+  "relationships": [
+    {"name": "Has", "identifying": true, "ends": [
+      {"entity": "EMPLOYEE", "card": "1", "participation": "partial"},
+      {"entity": "DEPENDANT", "card": "N", "participation": "full"}]},
+    {"name": "Works_in", "ends": [
+      {"entity": "EMPLOYEE", "card": "N", "participation": "full"},
+      {"entity": "DEPARTMENT", "card": "1", "participation": "partial"}]}
+  ]
+}

@@ -516,7 +516,16 @@ def render_crowsfoot(model):
             mx = "one" if str(this["card"]) == "1" else "many"
             mn = 1 if other["participation"] == "full" else 0
             return CF_END[(mn, mx)]
-        style = (f"html=1;rounded=0;fontSize=11;labelBackgroundColor=#ffffff;endSize=12;startSize=12;"
+        # Name sits beside the line, never on it: above a horizontal line,
+        # to the right of a vertical one (no white box cutting the line).
+        (ca, ra), (cb, rb) = cells[a["entity"]], cells[b["entity"]]
+        if ra == rb:
+            place = "verticalAlign=bottom;align=center;spacingBottom=6;"
+        elif ca == cb:
+            place = "verticalAlign=middle;align=left;spacingLeft=10;"
+        else:
+            place = "verticalAlign=bottom;align=left;spacingLeft=8;spacingBottom=6;"
+        style = (f"html=1;rounded=0;fontSize=11;labelBackgroundColor=none;endSize=12;startSize=12;{place}"
                  f"strokeColor=#000000;startArrow={sym(a, b)};startFill=0;endArrow={sym(b, a)};endFill=0;")
         label = r["name"] + ("<br>[" + ", ".join(x["name"] for x in r.get("attributes", [])) + "]" if r.get("attributes") else "")
         d.edge(d.nid("rel"), ids[a["entity"]], ids[b["entity"]], style, label)

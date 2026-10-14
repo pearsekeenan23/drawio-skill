@@ -55,27 +55,25 @@ PARTS = {"full", "partial"}
 # ---------------------------------------------------------------- styles ----
 # Chen shapes follow draw.io's built-in "Entity Relation" library, so the
 # result stays editable with the same shapes students use in the labs.
-S_ENTITY = "rounded=0;whiteSpace=wrap;html=1;fontStyle=1;fillColor=#ffffff;strokeColor=#000000;"
-S_WEAK = "shape=ext;margin=3;double=1;whiteSpace=wrap;html=1;fontStyle=1;fillColor=#ffffff;strokeColor=#000000;"
+S_ENTITY = "rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;"
+S_WEAK = "shape=ext;margin=3;double=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;"
 S_REL = "shape=rhombus;perimeter=rhombusPerimeter;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;"
 S_IDREL = "shape=rhombus;double=1;perimeter=rhombusPerimeter;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;"
-S_ATTR = "ellipse;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;fontSize=11;"
+S_ATTR = "ellipse;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;"
 S_KEY = S_ATTR + "fontStyle=4;"                       # underlined
-S_MULTI = "ellipse;shape=doubleEllipse;margin=3;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;fontSize=11;"
+S_MULTI = "ellipse;shape=doubleEllipse;margin=3;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;"
 S_DERIVED = S_ATTR + "dashed=1;"
 S_LINE = "endArrow=none;html=1;rounded=0;strokeColor=#000000;"
 S_FULL = "shape=link;html=1;rounded=0;strokeColor=#000000;"   # double line
-S_CARD_LABEL = "edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontStyle=1;fontSize=12;labelBackgroundColor=#ffffff;"
-S_TITLE = "text;html=1;fontSize=16;fontStyle=1;align=left;verticalAlign=middle;"
-S_LEGEND = "text;html=1;fontSize=11;align=left;verticalAlign=top;fontColor=#555555;whiteSpace=wrap;"
+S_CARD_LABEL = "edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];labelBackgroundColor=none;"
 
 # crow's foot
-S_CF_TABLE = ("swimlane;fontStyle=1;childLayout=stackLayout;horizontal=1;startSize=28;"
+S_CF_TABLE = ("swimlane;fontStyle=0;childLayout=stackLayout;horizontal=1;startSize=28;"
               "horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=0;"
               "marginBottom=0;html=1;fillColor=#ffffff;strokeColor=#000000;")
 S_CF_ROW = ("text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;"
             "spacingRight=4;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];"
-            "portConstraint=eastwest;html=1;fontSize=11;")
+            "portConstraint=eastwest;html=1;")
 CF_END = {  # (min, max) -> draw.io ER arrow
     (1, "one"): "ERmandOne", (0, "one"): "ERzeroToOne",
     (1, "many"): "ERoneToMany", (0, "many"): "ERzeroToMany",
@@ -113,10 +111,10 @@ def check(model):
         if e.get("weak"):
             if not any(a.get("partial_key") for a in attrs):
                 W("W-WEAK-NO-PARTIAL-KEY", n, "weak entity has no partial key", "mark the attribute that identifies it within its owner with \"partial_key\": true")
-        elif not any(a.get("key") for a in attrs):
+        elif attrs and not any(a.get("key") for a in attrs):
             E("E-NO-KEY", n, "entity has no identifier", "mark its identifying attribute with \"key\": true")
         if not attrs:
-            W("W-NO-ATTRS", n, "entity has no attributes", "list its attributes (an entity is described by more than one)")
+            W("W-NO-ATTRS", n, "no attributes listed yet", "list its attributes, including its key")
         elif len(attrs) == 1:
             W("W-ONE-ATTR", n, "entity has only one attribute", "check it is really an entity, not an attribute of something else")
         for a in attrs:
@@ -331,11 +329,11 @@ class Doc:
             f'<mxCell id="{cid}" value="{escape(value)}" style="{style}" edge="1" parent="1" source="{src}" target="{tgt}">'
             f'<mxGeometry relative="1" as="geometry"/></mxCell>')
 
-    def edge_label(self, edge_id, text, at):
+    def edge_label(self, edge_id, text, at, dx=0, dy=0):
         cid = self.nid("lbl")
         self.cells.append(
             f'<mxCell id="{cid}" value="{escape(text)}" style="{S_CARD_LABEL}" vertex="1" connectable="0" parent="{edge_id}">'
-            f'<mxGeometry x="{at}" relative="1" as="geometry"><mxPoint as="offset"/></mxGeometry></mxCell>')
+            f'<mxGeometry x="{at}" relative="1" as="geometry"><mxPoint x="{dx:.0f}" y="{dy:.0f}" as="offset"/></mxGeometry></mxCell>')
 
     def xml(self, name):
         body = "".join(self.cells)
@@ -454,8 +452,7 @@ def render_chen(model):
 
     minx = min(cx - w / 2 for _, _, _, cx, cy, w, h in shapes)
     miny = min(cy - h / 2 for _, _, _, cx, cy, w, h in shapes)
-    ox, oy = 40 - minx, 80 - miny
-    d.vertex("title", model.get("title", "ER diagram") + " — Chen notation", S_TITLE, 40, 20, 700, 30)
+    ox, oy = 40 - minx, 40 - miny
     for key, value, style, cx, cy, w, h in shapes:
         prefix = {"E": "ent", "R": "rel"}.get(key.split(":")[0], "att")
         ids[key] = d.nid(prefix)
@@ -466,13 +463,12 @@ def render_chen(model):
         for end in r["ends"]:
             eid = d.nid("end")
             d.edge(eid, ids["E:" + end["entity"]], ids[f"R:{ri}"], S_FULL if end["participation"] == "full" else S_LINE)
-            d.edge_label(eid, str(end["card"]).upper(), "-0.5")   # near the entity
-    ymax = max(cy + h / 2 for _, _, _, cx, cy, w, h in shapes) + oy
-    d.vertex("legend", "Chen notation · rectangle = entity · double rectangle = weak entity · diamond = relationship · "
-             "double diamond = identifying relationship · underlined = key · dashed underline = partial key · "
-             "double ellipse = multi-valued · dashed ellipse = derived · double line = full participation · "
-             "single line = partial participation · 1 / N / M = cardinality",
-             S_LEGEND, 40, ymax + 30, 760, 50)
+            # card beside the line (not on it), near the entity
+            ex, ey = centre[end["entity"]]
+            rx1, ry1 = rcent[ri]
+            horizontal = abs(rx1 - ex) >= abs(ry1 - ey)
+            dx, dy = (0, -12) if horizontal else (12, 0)
+            d.edge_label(eid, str(end["card"]).upper(), "-0.5", dx, dy)
     return d.xml(model.get("title", "ERD") + " (Chen)")
 
 
@@ -482,8 +478,8 @@ def render_crowsfoot(model):
     rels = model.get("relationships", [])
     sizes, ids = {}, {}
     for e in ents:
-        rows = e.get("attributes", [])
-        width = max([_ew(e["name"], 150, 8.5)] + [_ew(_cf_row(a), 150, 6.6) for a in rows])
+        rows = _cf_rows(e)
+        width = max([_ew(e["name"], 150, 8.5)] + [_ew(a["name"], 150, 7.2) for a in rows])
         sizes[e["name"]] = (width, 28 + 22 * max(1, len(rows)))
     binary = [r for r in rels if len(r.get("ends", [])) == 2]
     cells = grid_layout(ents, binary)
@@ -493,8 +489,7 @@ def render_crowsfoot(model):
     rowh = [max([sizes[n][1] for n, (c, r) in cells.items() if r == ri] or [60]) for ri in range(nrow)]
     GAPX, GAPY = 190, 110
     xs = [40 + sum(colw[:i]) + GAPX * i for i in range(ncol)]
-    ys = [80 + sum(rowh[:i]) + GAPY * i for i in range(nrow)]
-    d.vertex("title", model.get("title", "ER diagram") + " — crow's foot notation", S_TITLE, 40, 20, 700, 30)
+    ys = [40 + sum(rowh[:i]) + GAPY * i for i in range(nrow)]
     for e in ents:
         n = e["name"]
         c, r = cells[n]
@@ -503,11 +498,11 @@ def render_crowsfoot(model):
         y = ys[r] + (rowh[r] - h) / 2          # centred in its row, so lines run straight
         tid = d.nid("tbl")
         ids[n] = tid
-        style = S_CF_TABLE + ("strokeWidth=2;" if e.get("weak") else "")
+        style = S_CF_TABLE
         d.vertex(tid, n, style, x, y, w, h)
-        for i, a in enumerate(e.get("attributes", []) or [{"name": ""}]):
-            rs = S_CF_ROW + ("fontStyle=4;" if a.get("key") or a.get("partial_key") else "")
-            d.vertex(d.nid("row"), _cf_row(a), rs, 0, 28 + 22 * i, w, 22, parent=tid)
+        for i, a in enumerate(_cf_rows(e) or [{"name": ""}]):
+            rs = S_CF_ROW + ("fontStyle=4;" if a.get("key") else "")
+            d.vertex(d.nid("row"), a["name"], rs, 0, 28 + 22 * i, w, 22, parent=tid)
     for r in binary:
         a, b = r["ends"]
         # The symbol beside entity X: max = X's own card, min = 1 if the OTHER
@@ -525,30 +520,42 @@ def render_crowsfoot(model):
             place = "verticalAlign=middle;align=left;spacingLeft=10;"
         else:
             place = "verticalAlign=bottom;align=left;spacingLeft=8;spacingBottom=6;"
-        style = (f"html=1;rounded=0;fontSize=11;labelBackgroundColor=none;endSize=12;startSize=12;{place}"
+        style = (f"html=1;rounded=0;labelBackgroundColor=none;endSize=12;startSize=12;{place}"
                  f"strokeColor=#000000;startArrow={sym(a, b)};startFill=0;endArrow={sym(b, a)};endFill=0;")
-        label = r["name"] + ("<br>[" + ", ".join(x["name"] for x in r.get("attributes", [])) + "]" if r.get("attributes") else "")
-        d.edge(d.nid("rel"), ids[a["entity"]], ids[b["entity"]], style, label)
-    ymax = ys[-1] + rowh[-1]
-    d.vertex("legend", "Crow's foot notation · bar = one · crow's foot = many · circle = zero (optional) · "
-             "the symbol beside an entity says how many of THAT entity relate to one of the other · "
-             "underlined = key · relationship attributes shown in [brackets] on the line",
-             S_LEGEND, 40, ymax + 40, 760, 40)
+        d.edge(d.nid("rel"), ids[a["entity"]], ids[b["entity"]], style, r["name"])
     return d.xml(model.get("title", "ERD") + " (crow's foot)")
 
 
-def _cf_row(a):
-    tags = []
-    if a.get("key"):
-        tags.append("PK")
-    if a.get("partial_key"):
-        tags.append("partial key")
-    if a.get("multivalued"):
-        tags.append("multi-valued")
-    if a.get("derived"):
-        tags.append("derived")
-    name = a["name"] + (" (" + ", ".join(a["parts"]) + ")" if a.get("parts") else "")
-    return name + ("  — " + ", ".join(tags) if tags else "")
+def _cf_rows(e):
+    """Crow's foot lists plain attributes: a composite is listed as its parts."""
+    rows = []
+    for a in e.get("attributes", []):
+        if a.get("parts"):
+            rows += [{"name": p} for p in a["parts"]]
+        else:
+            rows.append(a)
+    return rows
+
+
+def crowsfoot_notes(model):
+    """What crow's foot notation has no symbol for, so it is not drawn."""
+    out = []
+    for e in model.get("entities", []):
+        for a in e.get("attributes", []):
+            if a.get("multivalued"):
+                out.append(f"note: {e['name']}.{a['name']} is multi-valued; crow's foot has no symbol for that "
+                           "(it is normally modelled as its own entity). Listed as a plain attribute.")
+            if a.get("derived"):
+                out.append(f"note: {e['name']}.{a['name']} is derived; crow's foot has no symbol for that. Listed as a plain attribute.")
+        if e.get("weak"):
+            out.append(f"note: {e['name']} is weak; crow's foot has no weak-entity symbol. Drawn as a normal entity.")
+    for r in model.get("relationships", []):
+        if r.get("attributes"):
+            out.append(f"note: {r['name']} has attributes ({', '.join(x['name'] for x in r['attributes'])}); crow's foot "
+                       "cannot draw attributes on a relationship (it is normally modelled as an associative entity). Not drawn.")
+        if len(r.get("ends", [])) > 2:
+            out.append(f"note: {r['name']} has {len(r['ends'])} ends; crow's foot only draws binary relationships. Not drawn.")
+    return out
 
 # ------------------------------------------------------------------- main ----
 
@@ -572,6 +579,9 @@ def main(argv=None):
         print(f"{len(errors)} error(s), {len(findings) - len(errors)} warning(s)", file=sys.stderr)
         return 1 if errors else 0
     notation = args.notation or model.get("notation", "chen")
+    if notation == "crowsfoot":
+        for note in crowsfoot_notes(model):
+            print(note, file=sys.stderr)
     xml = render_crowsfoot(model) if notation == "crowsfoot" else render_chen(model)
     out = args.output or os.path.splitext(args.model)[0] + ("-crowsfoot" if notation == "crowsfoot" else "-chen") + ".drawio"
     with open(out, "w", encoding="utf-8") as f:

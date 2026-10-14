@@ -15,7 +15,7 @@ python3 scripts/erdgen.py model.json -o model.drawio --url        # also print a
 python3 scripts/validate.py model-chen.drawio --strict            # structural check of the XML
 ```
 
-Worked examples are in `examples/erd-chen/`: `olympics.json` (lecture example: 1:N, M:N with relationship attributes, a derived attribute) and `features.json` (every Chen symbol).
+Worked examples are in `examples/erd-chen/`: `olympics.json` (COM106 Lecture 3 example, exactly as given: 1:N, M:N with relationship attributes, COUNTRY's attributes) and `features.json` (every Chen symbol).
 
 ## Model format
 
@@ -41,21 +41,25 @@ Worked examples are in `examples/erd-chen/`: `olympics.json` (lecture example: 1
 }
 ```
 
-| Field | Meaning | Chen symbol | Crow's foot |
+| Field | Meaning | Chen | Crow's foot |
 |---|---|---|---|
-| entity | thing the business stores facts about | rectangle | box |
-| `"weak": true` | identified only through its owner | double rectangle | thick box |
-| `"key": true` | identifier | underlined ellipse | underlined row, `PK` |
-| `"partial_key": true` | identifies a weak entity *within* its owner | dashed underline | underlined row, `partial key` |
-| `"multivalued": true` | several values per occurrence | double ellipse | row tagged `multi-valued` |
-| `"derived": true` | can be calculated from other data | dashed ellipse | row tagged `derived` |
-| `"parts": [...]` | composite attribute | ellipse with child ellipses | `name (part, part)` |
+| entity | thing the business stores facts about | rectangle | box with the name on top |
+| `"weak": true` | identified only through its owner | double rectangle | no symbol: drawn as a normal box (note printed) |
+| `"key": true` | identifier | underlined ellipse | underlined attribute |
+| `"partial_key": true` | identifies a weak entity *within* its owner | dashed underline | plain attribute |
+| `"multivalued": true` | several values per occurrence | double ellipse | no symbol: plain attribute (note printed) |
+| `"derived": true` | can be calculated from other data | dashed ellipse | no symbol: plain attribute (note printed) |
+| `"parts": [...]` | composite attribute | ellipse with child ellipses | its parts listed as attributes |
 | entity `"at": [col, row]` | optional: pin the entity to a grid cell | position | position |
-| relationship | association between entities | diamond | line, name as label |
-| `"identifying": true` | relationship that identifies a weak entity | double diamond | (line to the thick box) |
-| end `"card"` | `1`, `N` or `M`, written **beside that end's entity** | label on the line | max symbol beside the entity |
+| relationship | association between entities | diamond | line with the name beside it |
+| `"identifying": true` | relationship that identifies a weak entity | double diamond | no symbol: normal line |
+| end `"card"` | `1`, `N` or `M`, written **beside that end's entity** | label beside the line | max symbol beside the entity |
 | end `"participation"` | must **every** occurrence of that entity take part? | double line = full, single = partial | sets the **min** symbol at the *other* end |
-| relationship `"attributes"` | facts about the pairing (usually only on M:N) | ellipses on the diamond | `[brackets]` after the line label |
+| relationship `"attributes"` | facts about the pairing (usually only on M:N) | ellipses on the diamond | can't be drawn: model the relationship as an associative entity (note printed) |
+
+An entity may be listed with no attributes yet (as in the lecture example, where only COUNTRY's attributes are given): the checker warns `W-NO-ATTRS` rather than failing.
+
+No title or legend is added to the diagram. The diagram's page name in draw.io is the model's `"title"`.
 
 ### Reading an end
 `{"entity": "COMPETITOR", "card": "N"}` puts **N** beside COMPETITOR: one country sends **N** competitors. Ask the question both ways ("one country → how many competitors? one competitor → how many countries?") and write each answer beside the entity it counts.
@@ -87,7 +91,8 @@ It looks for missing or inconsistent structure. It never judges whether a design
 | `W-WEAK-NO-PARTIAL-KEY` | weak entity without a partial key |
 | `W-REL-ATTR-1N` | attributes on a 1:1 / 1:N relationship (usually belong to the N side) |
 | `W-ISOLATED` | entity in no relationship |
-| `W-NO-ATTRS` / `W-ONE-ATTR` | entity with 0 or 1 attributes: is it really an entity? |
+| `W-NO-ATTRS` | no attributes listed yet |
+| `W-ONE-ATTR` | only one attribute: is it really an entity? |
 
 ## Layout
 No external tools needed. The script lays the diagram out the way lecture diagrams are drawn:

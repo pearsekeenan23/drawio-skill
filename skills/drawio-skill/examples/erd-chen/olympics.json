@@ -5,20 +5,11 @@
       {"name": "country_code", "key": true},
       {"name": "country_name"},
       {"name": "continent"},
-      {"name": "number_of_competitors", "derived": true},
+      {"name": "number_of_competitors"},
       {"name": "team_manager"}]},
-    {"name": "COMPETITOR", "attributes": [
-      {"name": "competitor_id", "key": true},
-      {"name": "competitor_name"},
-      {"name": "date_of_birth"}]},
-    {"name": "EVENT", "attributes": [
-      {"name": "event_id", "key": true},
-      {"name": "event_name"},
-      {"name": "event_date"}]},
-    {"name": "VENUE", "attributes": [
-      {"name": "venue_id", "key": true},
-      {"name": "venue_name"},
-      {"name": "capacity"}]}
+    {"name": "COMPETITOR"},
+    {"name": "EVENT"},
+    {"name": "VENUE"}
   ],
   "relationships": [
     {"name": "Sends", "ends": [
